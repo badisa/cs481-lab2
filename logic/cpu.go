@@ -1,14 +1,70 @@
 package logic
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"math"
 	"os"
+	"os/exec"
+	"strings"
 )
+
+func PrintSchedulerStats(format string) {
+	cmd := exec.Command("cat", "/proc/self/sched")
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	err := cmd.Run()
+	if err != nil {
+		fmt.Println("Failed get proc information")
+		os.Exit(1)
+	}
+	result := output.String()
+	// Split the header from the body
+	sections := strings.Split(result, "-\n")
+	body := strings.Join(sections[1:], "")
+	var subSections []string
+	for _, section := range strings.Split(body, ":") {
+		for _, line := range strings.Split(section, "\n") {
+			subSections = append(subSections, strings.Trim(line, " "))
+		}
+	}
+	hasKey := false
+	values := make(map[string]string, 20)
+	var key string
+	for _, section := range subSections {
+		// Skips nonsense at the end
+		if strings.Contains(section, "=") {
+			continue
+		}
+		if format == "print" {
+			fmt.Println(section)
+		} else if format == "json" {
+			if hasKey {
+				values[key] = section
+				hasKey = false
+			} else {
+				key = section
+				hasKey = true
+			}
+		} else {
+			fmt.Printf("Unknown format: %s\n", format)
+			os.Exit(1)
+		}
+	}
+	if format == "json" {
+		result, err := json.MarshalIndent(values, "", "  ")
+		if err != nil {
+			fmt.Printf("Unable to marshall data: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(result))
+	}
+}
 
 // Inidicate that the context is canceled
 func IsCanceled(ctx context.Context) bool {
