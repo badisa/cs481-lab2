@@ -14,5 +14,5 @@ func main() {
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Second*time.Duration(*secondsToCompletion)))
 	defer cancel()
 	logic.IOIntensive(ctx)
-	logic.PrintSchedulerStats(*fmt)
+	logic.PrintSchedulerStats("io", *fmt)
 }

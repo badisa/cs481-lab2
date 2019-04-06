@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-func PrintSchedulerStats(format string) {
+func PrintSchedulerStats(procType string, format string) {
 	cmd := exec.Command("cat", "/proc/self/sched")
 	var output bytes.Buffer
 	cmd.Stdout = &output
@@ -35,6 +35,8 @@ func PrintSchedulerStats(format string) {
 	}
 	hasKey := false
 	values := make(map[string]string, 20)
+	// Set type of run in data for easier parsing
+	values["type"] = procType
 	var key string
 	for _, section := range subSections {
 		// Skips nonsense at the end
@@ -109,14 +111,21 @@ func IOIntensive(ctx context.Context) {
 		if err != nil {
 			panic(fmt.Sprintf("Failed to write: %s", err))
 		}
-		tmp.Sync()
-		_, err = tmp.Seek(0, io.SeekStart)
+		err = tmp.Sync()
 		if err != nil {
 			panic(fmt.Sprintf("Failed to sync: %s", err))
+		}
+		_, err = tmp.Seek(int64(-binary.Size(pi)), io.SeekEnd)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to seek: %s", err))
 		}
 		err = binary.Read(tmp, binary.BigEndian, &pi)
 		if err != nil {
 			panic(fmt.Sprintf("Failed to read: %s", err))
+		}
+		_, err := tmp.Seek(4096*1024, io.SeekEnd)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to do tail seek: %s", err))
 		}
 		if IsCanceled(ctx) {
 			break
