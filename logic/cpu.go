@@ -9,21 +9,55 @@ import (
 	"io"
 	"io/ioutil"
 	"math"
+	"math/rand"
 	"os"
 	"os/exec"
 	"strings"
 )
 
 func PrintSchedulerStats(procType string, format string) {
-	cmd := exec.Command("cat", "/proc/self/sched")
+	values := make(map[string]string, 20)
+	// Set type of run in data for easier parsing
+	values["type"] = procType
 	var output bytes.Buffer
+	procId := os.Getpid()
+	cmd := exec.Command("cat", fmt.Sprintf("/proc/%d/schedstat", procId))
 	cmd.Stdout = &output
 	err := cmd.Run()
 	if err != nil {
-		fmt.Println("Failed get proc information")
+		fmt.Println("Failed get schedstat information")
+		os.Exit(1)
+	}
+	schedstatVals := strings.Split(output.String(), " ")
+	if len(schedstatVals) != 3 {
+		fmt.Printf("Got unexpected number of values from schedstat: %d\n", len(schedstatVals))
 		os.Exit(1)
 	}
 	result := output.String()
+	// Doc Reference: https://github.com/torvalds/linux/blob/master/Documentation/scheduler/sched-stats.txt
+	values["time_on_cpu"] = schedstatVals[0]
+	values["wait_on_runqueue"] = schedstatVals[1]
+	values["timeslices_ran"] = schedstatVals[1]
+	output.Reset()
+	cmd = exec.Command("cat", fmt.Sprintf("/proc/%d/stat", procId))
+	cmd.Stdout = &output
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("Failed get stat information")
+		os.Exit(1)
+	}
+	statVals := strings.Split(output.String(), " ")
+	values["utime_jiffies"] = statVals[13]
+	values["kernal_time_jiffies"] = statVals[14]
+	output.Reset()
+	cmd = exec.Command("cat", fmt.Sprintf("/proc/%d/sched", procId))
+	cmd.Stdout = &output
+	err = cmd.Run()
+	if err != nil {
+		fmt.Println("Failed get sched information")
+		os.Exit(1)
+	}
+	result = output.String()
 	// Split the header from the body
 	sections := strings.Split(result, "-\n")
 	body := strings.Join(sections[1:], "")
@@ -34,28 +68,18 @@ func PrintSchedulerStats(procType string, format string) {
 		}
 	}
 	hasKey := false
-	values := make(map[string]string, 20)
-	// Set type of run in data for easier parsing
-	values["type"] = procType
 	var key string
 	for _, section := range subSections {
-		// Skips nonsense at the end
+		// Skips unnecessary fields at the end
 		if strings.Contains(section, "=") {
 			continue
 		}
-		if format == "print" {
-			fmt.Println(section)
-		} else if format == "json" {
-			if hasKey {
-				values[key] = section
-				hasKey = false
-			} else {
-				key = section
-				hasKey = true
-			}
+		if hasKey {
+			values[key] = section
+			hasKey = false
 		} else {
-			fmt.Printf("Unknown format: %s\n", format)
-			os.Exit(1)
+			key = section
+			hasKey = true
 		}
 	}
 	if format == "json" {
@@ -65,6 +89,11 @@ func PrintSchedulerStats(procType string, format string) {
 			os.Exit(1)
 		}
 		fmt.Println(string(result))
+	} else if format == "print" {
+		for key, val := range values {
+			fmt.Println(key)
+			fmt.Println(val)
+		}
 	}
 }
 
