@@ -132,6 +132,8 @@ func IOIntensive(ctx context.Context) {
 		panic(fmt.Sprintf("Failed to create temp file: %s", err))
 	}
 	defer os.Remove(tmp.Name())
+	// Some data to write randomly to disk and then flush to disk
+	dummyData := []byte("deadbeef")
 	for {
 		counter++
 		pi += 4 * math.Pow(-1, float64(counter)) / float64((2*counter)+1)
@@ -148,13 +150,23 @@ func IOIntensive(ctx context.Context) {
 		if err != nil {
 			panic(fmt.Sprintf("Failed to seek: %s", err))
 		}
-		err = binary.Read(tmp, binary.BigEndian, &pi)
-		if err != nil {
-			panic(fmt.Sprintf("Failed to read: %s", err))
-		}
-		_, err := tmp.Seek(4096*1024, io.SeekEnd)
+		_, err := tmp.Seek(4096*1024*5, io.SeekEnd)
 		if err != nil {
 			panic(fmt.Sprintf("Failed to do tail seek: %s", err))
+		}
+		offset, err := tmp.Seek(int64(os.SEEK_CUR), 0)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to get current size: %s", err))
+		}
+		_, err = tmp.Seek(rand.Int63n(offset), io.SeekStart)
+		if err != nil {
+			panic(fmt.Sprintf("Failed to do random seek: %s", err))
+		}
+		tmp.Read(dummyData)
+		tmp.Write(dummyData)
+		err = tmp.Sync()
+		if err != nil {
+			panic(fmt.Sprintf("Failed to sync: %s", err))
 		}
 		if IsCanceled(ctx) {
 			break
