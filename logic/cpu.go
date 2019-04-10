@@ -15,6 +15,29 @@ import (
 	"strings"
 )
 
+const (
+	PAGE_JUMP = 1024 * 4 // 4 kb the size of a page table
+)
+
+func DumpResults(result map[string]string, format string) {
+	if format == "json" {
+		result, err := json.MarshalIndent(result, "", "  ")
+		if err != nil {
+			fmt.Printf("Unable to marshall data: %s\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(string(result))
+	} else if format == "print" {
+		for key, val := range result {
+			fmt.Println(key)
+			fmt.Println(val)
+		}
+	} else {
+		fmt.Printf("Unknown output format: %s\n", format)
+		os.Exit(1)
+	}
+}
+
 func PrintSchedulerStats(procType string, format string) {
 	values := make(map[string]string, 20)
 	// Set type of run in data for easier parsing
@@ -37,7 +60,7 @@ func PrintSchedulerStats(procType string, format string) {
 	// Doc Reference: https://github.com/torvalds/linux/blob/master/Documentation/scheduler/sched-stats.txt
 	values["time_on_cpu"] = schedstatVals[0]
 	values["wait_on_runqueue"] = schedstatVals[1]
-	values["timeslices_ran"] = schedstatVals[1]
+	values["timeslices_ran"] = schedstatVals[2]
 	output.Reset()
 	cmd = exec.Command("cat", fmt.Sprintf("/proc/%d/stat", procId))
 	cmd.Stdout = &output
@@ -82,6 +105,65 @@ func PrintSchedulerStats(procType string, format string) {
 			hasKey = true
 		}
 	}
+	DumpResults(values, format)
+}
+
+func QueryProc(procPath string) (string, error) {
+	var output bytes.Buffer
+	procId := os.Getpid()
+	cmd := exec.Command("cat", fmt.Sprintf("/proc/%d/%s", procId, procPath))
+	cmd.Stdout = &output
+	err := cmd.Run()
+	return output.String(), err
+}
+
+func PrintMemoryStats(procType string, format string) {
+	values := make(map[string]string, 20)
+	// Set type of run in data for easier parsing
+	values["type"] = procType
+	output, err := QueryProc("statm")
+	if err != nil {
+		fmt.Println("Failed get statm information")
+		os.Exit(1)
+	}
+	schedstatVals := strings.Split(output, " ")
+	if len(schedstatVals) != 6 {
+		fmt.Printf("Got unexpected number of values from statm: %d\n", len(schedstatVals))
+		os.Exit(1)
+	}
+
+	// Doc Reference: https://github.com/torvalds/linux/blob/master/Documentation/scheduler/sched-stats.txt
+	values["total_size"] = schedstatVals[0]
+	values["resident_set_size"] = schedstatVals[1]
+	values["share"] = schedstatVals[2]
+
+	output, err = QueryProc("status")
+	if err != nil {
+		fmt.Println("Failed get status information")
+		os.Exit(1)
+	}
+	// Split the header from the body
+	var subSections []string
+	for _, section := range strings.Split(output, ":") {
+		for _, line := range strings.Split(section, "\n") {
+			subSections = append(subSections, strings.Trim(line, " "))
+		}
+	}
+	hasKey := false
+	var key string
+	for _, section := range subSections {
+		// Skips unnecessary fields at the end
+		if strings.Contains(section, "=") {
+			continue
+		}
+		if hasKey {
+			values[key] = section
+			hasKey = false
+		} else {
+			key = section
+			hasKey = true
+		}
+	}
 	if format == "json" {
 		result, err := json.MarshalIndent(values, "", "  ")
 		if err != nil {
@@ -95,6 +177,7 @@ func PrintSchedulerStats(procType string, format string) {
 			fmt.Println(val)
 		}
 	}
+	DumpResults(values, format)
 }
 
 // Inidicate that the context is canceled
@@ -172,4 +255,22 @@ func IOIntensive(ctx context.Context) {
 			break
 		}
 	}
+}
+
+func EfficientMemoryUsage(toStore, format string) {
+	output := make([]byte, len(toStore))
+	for i := 0; i < len(toStore); i++ {
+		output[i] = toStore[i]
+	}
+	PrintMemoryStats("efficient", format)
+}
+
+func InefficientMemoryUsage(toStore, format string) {
+	output := make([]byte, len(toStore)+PAGE_JUMP*len(toStore))
+	memoryIndex := 0
+	for i := 0; i < len(toStore); i++ {
+		output[memoryIndex] = toStore[i]
+		memoryIndex += PAGE_JUMP
+	}
+	PrintMemoryStats("inefficient", format)
 }
