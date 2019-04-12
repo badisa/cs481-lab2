@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	PAGE_JUMP = 1024 * 4 // 4 kb the size of a page table
+	PAGE_JUMP = 1024 * 128 // Jump 32 page tables
 )
 
 func DumpResults(result map[string]string, format string) {
@@ -127,7 +127,7 @@ func PrintMemoryStats(procType string, format string) {
 		os.Exit(1)
 	}
 	schedstatVals := strings.Split(output, " ")
-	if len(schedstatVals) != 6 {
+	if len(schedstatVals) != 7 {
 		fmt.Printf("Got unexpected number of values from statm: %d\n", len(schedstatVals))
 		os.Exit(1)
 	}
@@ -146,7 +146,7 @@ func PrintMemoryStats(procType string, format string) {
 	var subSections []string
 	for _, section := range strings.Split(output, ":") {
 		for _, line := range strings.Split(section, "\n") {
-			subSections = append(subSections, strings.Trim(line, " "))
+			subSections = append(subSections, strings.Trim(strings.Trim(line, " "), "\t"))
 		}
 	}
 	hasKey := false
@@ -162,19 +162,6 @@ func PrintMemoryStats(procType string, format string) {
 		} else {
 			key = section
 			hasKey = true
-		}
-	}
-	if format == "json" {
-		result, err := json.MarshalIndent(values, "", "  ")
-		if err != nil {
-			fmt.Printf("Unable to marshall data: %s\n", err)
-			os.Exit(1)
-		}
-		fmt.Println(string(result))
-	} else if format == "print" {
-		for key, val := range values {
-			fmt.Println(key)
-			fmt.Println(val)
 		}
 	}
 	DumpResults(values, format)
@@ -258,11 +245,17 @@ func IOIntensive(ctx context.Context) {
 }
 
 func EfficientMemoryUsage(toStore, format string) {
-	output := make([]byte, len(toStore))
+    // Allocate the same amount of bytes, but only
+    // store the values provided on the CLI
+	output := make([]byte, len(toStore)+PAGE_JUMP*len(toStore))
 	for i := 0; i < len(toStore); i++ {
 		output[i] = toStore[i]
 	}
 	PrintMemoryStats("efficient", format)
+	// Ensure it is in memory when we check the stats
+	for i := 0; i < len(toStore); i++ {
+		output[i] = toStore[i]
+	}
 }
 
 func InefficientMemoryUsage(toStore, format string) {
@@ -273,4 +266,8 @@ func InefficientMemoryUsage(toStore, format string) {
 		memoryIndex += PAGE_JUMP
 	}
 	PrintMemoryStats("inefficient", format)
+	// Ensure it is in memory when we check the stats
+	for i := 0; i < len(toStore); i++ {
+		output[i] = toStore[i]
+	}
 }
